@@ -58,3 +58,67 @@
 (define-read-only (get-token-uri)
     (ok none)
 )
+
+;; Core Staking Functions
+
+;; Stake sBTC and receive lstBTC
+(define-public (stake-sbtc (amount uint))
+    (let (
+        (current-rate (var-get exchange-rate))
+        (lstbtc-to-mint (/ (* amount u1000000) current-rate))
+        (sender tx-sender)
+    )
+        (asserts! (var-get pool-active) err-pool-not-active)
+        (asserts! (>= amount (var-get min-stake-amount)) err-invalid-amount)
+        
+        ;; Transfer sBTC from user to contract
+        ;; Note: In production, this would use the actual sBTC token contract
+        ;; For now, we'll track the balance in our map
+        (map-set user-stakes sender (+ (default-to u0 (map-get? user-stakes sender)) amount))
+        
+        ;; Mint lstBTC to user
+        (try! (ft-mint? lstbtc lstbtc-to-mint sender))
+        
+        ;; Update global state
+        (var-set total-sbtc-staked (+ (var-get total-sbtc-staked) amount))
+        (var-set total-lstbtc-supply (+ (var-get total-lstbtc-supply) lstbtc-to-mint))
+        
+        (print {
+            action: "stake",
+            user: sender,
+            sbtc-amount: amount,
+            lstbtc-minted: lstbtc-to-mint,
+            exchange-rate: current-rate
+        })
+        
+        (ok lstbtc-to-mint)
+    )
+)
+
+;; Unstake lstBTC and receive sBTC
+(define-public (unstake-lstbtc (lstbtc-amount uint))
+    (let (
+        (current-rate (var-get exchange-rate))
+        (sbtc-to-return (/ (* lstbtc-amount current-rate) u1000000))
+        (sender tx-sender)
+        (user-lstbtc-balance (ft-get-balance lstbtc sender))
+    )
+        (asserts! (var-get pool-active) err-pool-not-active)
+        (asserts! (>= user-lstbtc-balance lstbtc-amount) err-insufficient-balance)
+        (asserts! (>= (var-get total-sbtc-staked) sbtc-to-return) err-insufficient-liquidity)
+        
+        ;; Burn lstBTC from user
+        (try! (ft-burn? lstbtc lstbtc-amount sender))
+        
+        ;; Return sBTC to user (update their stake balance)
+        (let ((current-stake (default-to u0 (map-get? user-stakes sender))))
+            (if (>= current-stake sbtc-to-return)
+                (map-set user-stakes sender (- current-stake sbtc-to-return))
+                ;; If user's original stake is less than what they're owed, give them the difference from rewards
+                (begin
+                    (map-delete user-stakes sender)
+                    ;; In production, this would transfer from the reward pool
+                    true
+                )
+            )
+        )
