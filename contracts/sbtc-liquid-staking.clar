@@ -122,3 +122,66 @@
                 )
             )
         )
+
+        ;; Update global state
+        (var-set total-sbtc-staked (- (var-get total-sbtc-staked) sbtc-to-return))
+        (var-set total-lstbtc-supply (- (var-get total-lstbtc-supply) lstbtc-amount))
+        
+        (print {
+            action: "unstake",
+            user: sender,
+            lstbtc-burned: lstbtc-amount,
+            sbtc-returned: sbtc-to-return,
+            exchange-rate: current-rate
+        })
+        
+        (ok sbtc-to-return)
+    )
+)
+
+;; Admin function to add stacking rewards (increases exchange rate)
+(define-public (add-rewards (reward-amount uint))
+    (let (
+        (current-rewards (var-get rewards-accumulated))
+        (current-supply (var-get total-lstbtc-supply))
+        (current-staked (var-get total-sbtc-staked))
+    )
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        
+        ;; Calculate new exchange rate
+        ;; New rate = (total_sbtc_staked + rewards) / total_lstbtc_supply
+        (let ((new-total-value (+ current-staked reward-amount)))
+            (if (> current-supply u0)
+                (var-set exchange-rate (/ (* new-total-value u1000000) current-supply))
+                true
+            )
+        )
+        
+        (var-set rewards-accumulated (+ current-rewards reward-amount))
+        
+        (print {
+            action: "rewards-added",
+            amount: reward-amount,
+            new-exchange-rate: (var-get exchange-rate),
+            total-rewards: (var-get rewards-accumulated)
+        })
+        
+        (ok true)
+    )
+)
+
+;; Read-only functions for frontend integration
+
+(define-read-only (get-exchange-rate)
+    (var-get exchange-rate)
+)
+
+(define-read-only (get-pool-stats)
+    {
+        total-sbtc-staked: (var-get total-sbtc-staked),
+        total-lstbtc-supply: (var-get total-lstbtc-supply),
+        exchange-rate: (var-get exchange-rate),
+        rewards-accumulated: (var-get rewards-accumulated),
+        pool-active: (var-get pool-active)
+    }
+)
