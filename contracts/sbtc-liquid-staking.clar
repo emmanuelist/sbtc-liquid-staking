@@ -185,3 +185,67 @@
         pool-active: (var-get pool-active)
     }
 )
+
+(define-read-only (get-user-info (user principal))
+    {
+        original-stake: (default-to u0 (map-get? user-stakes user)),
+        lstbtc-balance: (ft-get-balance lstbtc user),
+        current-sbtc-value: (/ (* (ft-get-balance lstbtc user) (var-get exchange-rate)) u1000000)
+    }
+)
+
+(define-read-only (calculate-stake-output (sbtc-amount uint))
+    (/ (* sbtc-amount u1000000) (var-get exchange-rate))
+)
+
+(define-read-only (calculate-unstake-output (lstbtc-amount uint))
+    (/ (* lstbtc-amount (var-get exchange-rate)) u1000000)
+)
+
+;; Admin functions
+
+(define-public (set-protocol-fee (new-fee uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (asserts! (<= new-fee u1000) err-invalid-amount) ;; Max 10% fee
+        (var-set protocol-fee new-fee)
+        (ok true)
+    )
+)
+
+(define-public (set-min-stake-amount (new-min uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (var-set min-stake-amount new-min)
+        (ok true)
+    )
+)
+
+(define-public (toggle-pool (active bool))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (var-set pool-active active)
+        (ok true)
+    )
+)
+
+;; Emergency functions
+
+(define-public (emergency-pause)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (var-set pool-active false)
+        (print { action: "emergency-pause", timestamp: stacks-block-height })
+        (ok true)
+    )
+)
+
+;; Initialize contract
+(begin
+    (print "sBTC Liquid Staking Protocol initialized")
+    (print { 
+        contract-owner: contract-owner,
+        initial-exchange-rate: (var-get exchange-rate),
+        protocol-fee: (var-get protocol-fee)
+    })
+)
